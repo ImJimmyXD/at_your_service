@@ -5,12 +5,55 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golang-jwt/jwt/v4"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
 	"log"
 	"net/http"
+	"os"
+	"time"
 )
+
+func getJWTKey() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("JWT_SECRET is not set")
+	}
+	return []byte(secret)
+}
+
+var jwtKey = getJWTKey()
+
+// Claims struct which will be encoded to a JWT.
+// Make sure to use jwt.RegisteredClaims if you want to use the standardized claim names.
+type Claims struct {
+	Email string `json:"email"`
+	jwt.RegisteredClaims
+}
+
+func generateJWT(email string) (string, error) {
+	// Set the expiration time of the token
+	// Here, we have kept it as 24 hours
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &Claims{
+		Email: email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+			// IssuedAt and Issuer are also commonly included
+		},
+	}
+
+	// Declare the token with the algorithm used for signing and the claims
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// Create the JWT string
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
 
 func signupHandler(client *mongo.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +74,9 @@ func signupHandler(client *mongo.Client) http.HandlerFunc {
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
 			return
 		}
+
+		// Log the creation of the user
+		log.Printf("User created successfully: Email - %s", user.Email)
 
 		_, err = fmt.Fprintf(w, "User created successfully")
 		if err != nil {
@@ -87,9 +133,32 @@ func signinHandler(client *mongo.Client) http.HandlerFunc {
 
 		// If all checks out, the user is signed in successfully
 		log.Printf("User signed in: %s", user.Email)
-		_, err = fmt.Fprintf(w, "Signin successful")
+
+		// Generate JWT token
+		tokenString, err := generateJWT(foundUser.Email)
 		if err != nil {
+			log.Printf("Token generation failed: %v", err)
+			http.Error(w, "Error generating token", http.StatusInternalServerError)
 			return
+		}
+		// Create a response struct
+		type SigninResponse struct {
+			Message string `json:"message"`
+			Token   string `json:"token,omitempty"` // Include the token if you have one
+		}
+
+		// Create a success response
+		response := SigninResponse{
+			Message: "Signin successful",
+			Token:   tokenString,
+		}
+
+		// Send the response as JSON
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(response)
+		if err != nil {
+			log.Printf("Error sending response: %v", err)
+			http.Error(w, "Error sending response", http.StatusInternalServerError)
 		}
 	}
 }

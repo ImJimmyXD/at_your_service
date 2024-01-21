@@ -1,9 +1,10 @@
 package main
 
 type User struct {
-	Email    string `json:"email" bson:"email"`
-	Password string `json:"password" bson:"password"`
-	Type     string `json:"type,omitempty" bson:"type,omitempty"`
+	Email    string  `json:"email" bson:"email"`
+	Password string  `json:"password" bson:"password"`
+	Type     string  `json:"type,omitempty" bson:"type,omitempty"`
+	Orders   []Order `json:"orders" bson:"orders"`
 }
 
 type Order struct {
